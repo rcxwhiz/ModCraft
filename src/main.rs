@@ -18,59 +18,26 @@ fn setup(
 ) {
     // spawn camera
     commands.spawn(Camera3dBundle {
-        transform: Transform::from_xyz(0.0, 0.0, 0.0).looking_at(Vec3::new(0., 1., 0.), Vec3::Y),
+        transform: Transform::from_xyz(0.0, 0.0, 0.0).looking_at(Vec3::X, Vec3::Y),
         ..Default::default()
     });
 
+    // create the rainbow material
     let debug_material = materials.add(StandardMaterial {
         base_color_texture: Some(images.add(uv_debug_texture())),
         ..default()
     });
 
+    // make a cube mesh handle
     let cube_mesh = meshes.add(shape::Cube::default().into());
 
-    // spawn a cube
-    // commands.spawn(PbrBundle {
-    //     mesh: cube_mesh.clone(),
-    //     transform: Transform::from_xyz(10.0, 0.0, 0.0),
-    //     material: debug_material.clone(),
-    //     ..Default::default()
-    // });
-
-    // commands.spawn(PbrBundle {
-    //     mesh: cube_mesh.clone(),
-    //     transform: Transform::from_xyz(-10.0, 0.0, 0.0),
-    //     material: debug_material.clone(),
-    //     ..Default::default()
-    // });
-
-    // commands.spawn(PbrBundle {
-    //     mesh: cube_mesh.clone(),
-    //     transform: Transform::from_xyz(0.0, 0.0, -10.0),
-    //     material: debug_material.clone(),
-    //     ..Default::default()
-    // });
-
+    // spawn the cube
     commands.spawn(PbrBundle {
-        mesh: cube_mesh.clone(),
-        transform: Transform::from_xyz(0.0, 10.0, 0.0),
-        material: debug_material.clone(),
+        mesh: cube_mesh,
+        transform: Transform::from_xyz(10.0, 0.0, 0.0),
+        material: debug_material,
         ..Default::default()
     });
-
-    // commands.spawn(PbrBundle {
-    //     mesh: cube_mesh.clone(),
-    //     transform: Transform::from_xyz(0.0, -10.0, 0.0),
-    //     material: debug_material.clone(),
-    //     ..Default::default()
-    // });
-
-    // commands.spawn(PbrBundle {
-    //     mesh: cube_mesh,
-    //     transform: Transform::from_xyz(0.0, 0.0, 10.0),
-    //     material: debug_material,
-    //     ..Default::default()
-    // });
 }
 
 // Creates a colorful test pattern
