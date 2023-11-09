@@ -10,8 +10,69 @@ const CHUNK_AREA: u32 = CHUNK_WIDTH * CHUNK_WIDTH;
 const CHUNK_VOLUME: u32 = CHUNK_AREA * CHUNK_HEIGHT;
 
 #[derive(Resource)]
-struct Chunk {
+pub struct Chunk {
+    location: (i64, i64),
     blocks: [Block; CHUNK_VOLUME as usize],
+    mesh: Option<Handle<Mesh>>,
+    pbr_bundle: Option<PbrBundle>, // should this be an entity?
+}
+
+impl Chunk {
+    pub fn new(x: i64, z: i64) -> Self {
+        let mut chunk = Chunk {
+            location: (x, z),
+            blocks: [Block::Air; CHUNK_VOLUME as usize],
+            mesh: None,
+            pbr_bundle: None,
+        };
+
+        for x in 0..CHUNK_WIDTH {
+            for y in 0..32 {
+                for z in 0..CHUNK_WIDTH {
+                    // let &mut block = chunk.block(x as usize, y as usize, z as usize);
+                    chunk.blocks[x as usize + (y * CHUNK_AREA) as usize + (z * CHUNK_WIDTH) as usize] = Block::Dirt;
+                }
+            }
+        }
+
+        chunk
+    }
+
+    fn get_mesh(
+        &mut self,
+        mut meshes: ResMut<Assets<Mesh>>,
+    ) -> Handle<Mesh> {
+        if self.mesh.is_none() {
+            self.mesh = Some(meshes.add(shape::Cube::default().into()));
+        }
+        self.mesh.clone().unwrap()
+    }
+
+    pub fn get_pbr_bundle(
+        &mut self,
+        meshes: ResMut<Assets<Mesh>>,
+        mut images: ResMut<Assets<Image>>,
+        mut materials: ResMut<Assets<StandardMaterial>>,
+    ) -> PbrBundle {
+        if self.pbr_bundle.is_none() {
+            let mesh = self.get_mesh(meshes);
+
+            // todo change this so that it's not making a new material every time
+            let debug_material = materials.add(StandardMaterial {
+                base_color_texture: Some(images.add(uv_debug_texture())),
+                ..default()
+            });
+
+            self.pbr_bundle = Some(PbrBundle {
+                mesh,
+                transform: Transform::from_xyz(0., 0., 10.),
+                material: debug_material,
+                ..Default::default()
+            });
+        }
+
+        self.pbr_bundle.clone().unwrap()
+    }
 }
 
 fn spawn_blocks(
@@ -72,33 +133,4 @@ fn uv_debug_texture() -> Image {
         &texture_data,
         TextureFormat::Rgba8UnormSrgb,
     )
-}
-
-impl Default for Chunk {
-    fn default() -> Self {
-        let mut chunk = Chunk {
-            blocks: [Block::Air; CHUNK_VOLUME as usize],
-        };
-
-        for x in 0..CHUNK_WIDTH {
-            for y in 0..32 {
-                for z in 0..CHUNK_WIDTH {
-                    // let &mut block = chunk.block(x as usize, y as usize, z as usize);
-                    chunk.blocks[x as usize + (y * CHUNK_AREA) as usize + (z * CHUNK_WIDTH) as usize] = Block::Dirt;
-                }
-            }
-        }
-
-        chunk
-    }
-}
-
-pub struct ChunkPlugin;
-
-impl Plugin for ChunkPlugin {
-    fn build(&self, app: &mut App) {
-        // add a chunk resource
-        app.init_resource::<Chunk>();
-        app.add_systems(Startup, spawn_blocks);
-    }
 }
