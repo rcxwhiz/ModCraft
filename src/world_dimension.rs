@@ -15,15 +15,19 @@ struct Dimension;
 struct Name(&'static str);
 
 #[derive(Component)]
-struct Chunks(HashMap<I64Vec2, chunk::Chunk>);
+struct Chunks(HashMap<(i64, i64), chunk::Chunk>);
 
 impl Chunks {
     fn create_chunk(&mut self, location: &I64Vec2) -> bool {
-        let chunk = self.0.get(location);
+        info!("creating a chunk at ({}, {})", location.x, location.y);
+        let chunk = self.0.get(&(location.x, location.y));
         if let Some(_chunk) = chunk {
+            info!("Found an existing chunk");
             return false
         } else {
-            self.0.insert(*location, chunk::Chunk::new(*location));
+            info!("No chunk found, creating");
+            self.0.insert((location.x, location.y), chunk::Chunk::new(*location));
+            info!("Created and inserted chunk");
             return true
         }
     }
@@ -49,7 +53,7 @@ fn spawn_overworld(
     info!("Spawning overworld dimension");
     // create a chunks grid with one chunk
     let mut chunks = Chunks(HashMap::new());
-    chunks.create_chunk(&I64Vec2::ZERO);
+    chunks.create_chunk(&I64Vec2::ZERO);  // PROBLEM HERE
     info!("Created chunks component with chunk");
 
     // spawn the dimension
@@ -73,7 +77,7 @@ fn render_overworld_chunk(
     for (name, mut chunks) in query.iter_mut() {
         if name.0 == OVERWORLD_NAME {
             info!("Found overworld dimension");
-            let chunk = chunks.0.get_mut(&I64Vec2::ZERO).unwrap();
+            let chunk = chunks.0.get_mut(&(0, 0)).expect("There was not a chunk at (0,0) to render");
             info!("Found chunk");
             chunk.set_visibility(
                 true,

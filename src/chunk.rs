@@ -19,7 +19,7 @@ impl Chunk {
     pub const VOLUME: usize = Self::AREA * Self::HEIGHT;
 
     pub fn new(location: I64Vec2) -> Self {
-        // create new chunk at location filled with air blocks
+        info!("Creating new chunk filled with air blocks");
         let mut chunk = Chunk {
             location,
             blocks: [Block::default(); Self::VOLUME],
@@ -27,7 +27,7 @@ impl Chunk {
             pbr_entity: None,
         };
 
-        // loop through blocks
+        info!("Looping through blocks to correct positions and set some to solid blocks");
         for x in 0..Self::WIDTH {
             for y in 0..Self::HEIGHT {
                 for z in 0..Self::WIDTH {
@@ -43,7 +43,7 @@ impl Chunk {
                 }
             }
         }
-
+        info!("Finished chunk");
         chunk
     }
 
@@ -124,7 +124,7 @@ impl Plugin for ChunkPlugin {
         app.add_event::<HideChunkEvent>();
         info!("Registering show chunk event");
         app.add_event::<ShowChunkEvent>();
-        info!("Adding hide and show chunk systems");
-        app.add_systems(Update, (hide_chunk_system, show_chunk_system));
+        // info!("Adding hide and show chunk systems");
+        // app.add_systems(Update, (hide_chunk_system, show_chunk_system));
     }
 }

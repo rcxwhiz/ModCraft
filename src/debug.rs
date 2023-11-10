@@ -33,7 +33,9 @@ impl Default for UVDebugTexture {
 }
 
 fn insert_uv_debug_texture(mut commands: Commands) {
+    info!("Adding debug texture resource");
     commands.init_resource::<UVDebugTexture>();
+    info!("Added debug texture resource");
 }
 
 #[derive(Resource)]
@@ -43,8 +45,10 @@ fn insert_cube_mesh(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
 ) {
+    info!("Adding cube mesh resource");
     let cube_mesh = CubeMesh(meshes.add(shape::Cube::default().into()));
     commands.insert_resource(cube_mesh);
+    info!("Added cube mesh resource");
 }
 
 #[derive(Resource)]
@@ -56,12 +60,14 @@ fn insert_debug_material(
     mut images: ResMut<Assets<Image>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
+    info!("Adding debug material resource");
     let debug_material = DebugMaterial(materials.add(StandardMaterial {
         base_color_texture: Some(images.add(uv_debug_texture.0.clone())),
         ..default()
     }));
 
     commands.insert_resource(debug_material);
+    info!("Added debug material resource");
 }
 
 pub struct DebugPlugin;
