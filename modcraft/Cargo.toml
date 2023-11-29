@@ -1,0 +1,6 @@
+[workspace]
+
+members = [
+    "modcraft_app",
+    "modcraft_lib"
+]

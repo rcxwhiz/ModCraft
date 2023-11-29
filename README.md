@@ -1,20 +1,16 @@
 # ModCraft
 
-This is a toy project of mine where I'm aiming to at least partially recreate a popular block-based game with performance
-and modding in mind. This game uses [bevy](https://bevyengine.org/) as an engine.
+This is a toy project of mine where I'm aiming to at least partially recreate a popular block-based game with performance and modding in mind. This game uses [bevy](https://bevyengine.org/) as an engine.
 
-# Build Instructions
+`modcraft_app` is the crate for the actual game. It has an optional `client` feature flag that will compile a client rather than a standalone app. It depends on `modcraft_lib`. The idea is that `modcraft_lib` will actually contain the majority of the code, and it will be the library that "mods" depend on.
 
-As of now this project is a standard, stand alone bevy game. The `Cargo.toml` file is configured according to [the basic
-tutorial provided by bevy](https://bevyengine.org/learn/book/getting-started/setup/). If you would like to have faster compiles, use the `--features bevy/dynamic_linking` flag, ex.
-`cargo run --features bevy/dynamic_linking`.
+# Short Term Goals
 
-This project was created with rust `1.73.0`, but you should assume it uses all the features in the latest stable build
-of rust.
-
-# Goals / Roadmap
-
-One of my main goals of this game is to have first class modding. I plan to do this by having a separate API create, and
-then dynamically load mods with the game executable. I have not made any of this functionality yet due to having no
-experience whatsoever writing rendering code. I have a real computer science degree, but part of the fun of this project
-for me is that we never directly covered any of these topics in my classes. 
+- [X] Workspace for alpha development
+- [X] Client/server compilation options
+- [ ] Figure out split between server/client/lib architecture 
+- [ ] Get bevy setup in the workspace
+- [ ] Pick client/server communication library (probably `bevy_quinnet` or `bevy_renet`)
+- [ ] Use a dynamic library loading crate to load a mod (`libloading`?)
+- [ ] Get `modcraft_lib` to be able to define a mod
+- [ ] An example mod that loads and runs

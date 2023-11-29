@@ -1,0 +1,10 @@
+[package]
+name = "modcraft_app"
+version = "0.1.0"
+edition = "2021"
+
+[features]
+client = []
+
+[dependencies]
+modcraft_lib = { path = "../modcraft_lib" }
