@@ -1,15 +1,13 @@
 use std::{
     collections::HashMap,
+    env,
     thread::{self, sleep},
     time::Duration,
 };
 
 use bevy::{
     app::AppExit,
-    prelude::{
-        App, Commands, Deref, DerefMut, EventReader, EventWriter, PostUpdate, Res, ResMut,
-        Resource, Startup, Update,
-    },
+    prelude::*,
     utils::tracing::{info, warn},
 };
 use bevy_quinnet::{
@@ -18,12 +16,12 @@ use bevy_quinnet::{
         connection::{ConnectionConfiguration, ConnectionEvent},
         Client, QuinnetClientPlugin,
     },
-    shared::ClientId,
+    shared::ClientId, server::QuinnetServerPlugin,
 };
 use rand::{distributions::Alphanumeric, Rng};
 use tokio::sync::mpsc;
 
-use crate::protocol::{ClientMessage, ServerMessage};
+use crate::{protocol::{ClientMessage, ServerMessage}, server};
 
 #[derive(Resource, Debug, Clone, Default)]
 struct Users {
@@ -33,6 +31,9 @@ struct Users {
 
 #[derive(Resource, Deref, DerefMut)]
 struct TerminalReceiver(mpsc::Receiver<String>);
+
+#[derive(Resource)]
+struct ServerAddress(ConnectionConfiguration);
 
 pub fn on_app_exit(app_exit_events: EventReader<AppExit>, client: Res<Client>) {
     if !app_exit_events.is_empty() {
@@ -114,10 +115,10 @@ fn start_terminal_listener(mut commands: Commands) {
     commands.insert_resource(TerminalReceiver(from_terminal_receiver));
 }
 
-fn start_connection(mut client: ResMut<Client>) {
+fn start_connection(mut client: ResMut<Client>, server_address: Res<ServerAddress>) {
     client
         .open_connection(
-            ConnectionConfiguration::from_strings("127.0.0.1:6006", "0.0.0.0:0").unwrap(),
+            server_address.0.clone(),
             CertificateVerificationMode::SkipVerification,
         )
         .unwrap();
@@ -147,8 +148,8 @@ fn handle_client_events(
 }
 
 pub(crate) fn setup_app(app: &mut App) {
+    // client stuff
     app.add_plugins(QuinnetClientPlugin::default());
-    
     app.init_resource::<Users>();
 
     app.add_systems(Startup, (start_terminal_listener, start_connection))
@@ -161,4 +162,35 @@ pub(crate) fn setup_app(app: &mut App) {
             ),
         )
         .add_systems(PostUpdate, on_app_exit);
+
+    // self hosting flag
+    let mut self_hosting = false;
+    // determine if self hosting by finding a valid server ip to connect to
+    let args: Vec<String> = env::args().collect();
+    if let Some(server_address) = args.get(1) {
+        if let Ok(server_config) =
+            ConnectionConfiguration::from_strings(server_address, "0.0.0.0:0")
+        {
+            app.insert_resource(ServerAddress(server_config));
+            info!("Starting client connected to server at {}", server_address);
+        } else {
+            panic!(
+                "Got an invalid server address to connect to: {}",
+                server_address
+            );
+        }
+    } else {
+        app.insert_resource(ServerAddress(
+            ConnectionConfiguration::from_strings("127.0.0.1:6006", "0.0.0.0:0").unwrap(),
+        ));
+        self_hosting = true;
+        info!("Starting a client with a self-hosted server");
+    }
+
+    if self_hosting { // there should be a more organized way to do this (plugins?)
+        app.add_plugins(QuinnetServerPlugin::default())
+            .init_resource::<server::Users>()
+            .add_systems(Startup, server::start_listening.before(start_connection))
+            .add_systems(Update, (server::handle_client_messages, server::handle_server_events));
+    }
 }

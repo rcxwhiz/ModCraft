@@ -9,21 +9,18 @@ mod client;
 use modcraft_lib::add;
 
 fn main() {
-    println!("Welcome to modcraft (now different)");
+    info!("Welcome to modcraft (now different)");
 
     #[cfg(feature = "dedicated-server")]
-    println!("Compiled as dedicated server");
+    info!("Compiled as dedicated server");
 
     #[cfg(not(feature = "dedicated-server"))]
-    println!("Compiled as client");
+    info!("Compiled as client");
 
-    println!("Modcraft lib is working: {} + {} = {}", 2, 2, add(2, 2));
+    info!("Modcraft lib is working: {} + {} = {}", 2, 2, add(2, 2));
 
     let mut app = App::new();
-    app.add_plugins((
-        ScheduleRunnerPlugin::default(),
-        LogPlugin::default(),
-    ));
+    app.add_plugins((ScheduleRunnerPlugin::default(), LogPlugin::default()));
 
     #[cfg(feature = "dedicated-server")]
     server::setup_app(&mut app);

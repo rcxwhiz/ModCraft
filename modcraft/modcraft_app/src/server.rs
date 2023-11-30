@@ -3,8 +3,8 @@ use std::collections::HashMap;
 use bevy::prelude::*;
 use bevy_quinnet::{
     server::{
-        certificate::CertificateRetrievalMode, ConnectionLostEvent, Endpoint, Server,
-        ServerConfiguration, QuinnetServerPlugin,
+        certificate::CertificateRetrievalMode, ConnectionLostEvent, Endpoint, QuinnetServerPlugin,
+        Server, ServerConfiguration,
     },
     shared::{channel::ChannelId, ClientId},
 };
@@ -12,11 +12,11 @@ use bevy_quinnet::{
 use crate::protocol::{ClientMessage, ServerMessage};
 
 #[derive(Resource, Debug, Clone, Default)]
-struct Users {
+pub(crate) struct Users {
     names: HashMap<ClientId, String>,
 }
 
-fn handle_client_messages(mut server: ResMut<Server>, mut users: ResMut<Users>) {
+pub(crate) fn handle_client_messages(mut server: ResMut<Server>, mut users: ResMut<Users>) {
     let endpoint = server.endpoint_mut();
     for client_id in endpoint.clients() {
         while let Some(message) = endpoint.try_receive_message_from::<ClientMessage>(client_id) {
@@ -71,7 +71,7 @@ fn handle_client_messages(mut server: ResMut<Server>, mut users: ResMut<Users>) 
     }
 }
 
-fn handle_server_events(
+pub(crate) fn handle_server_events(
     mut connection_lost_events: EventReader<ConnectionLostEvent>,
     mut server: ResMut<Server>,
     mut users: ResMut<Users>,
@@ -98,7 +98,7 @@ fn handle_disconnect(endpoint: &mut Endpoint, users: &mut ResMut<Users>, client_
     }
 }
 
-fn start_listening(mut server: ResMut<Server>) {
+pub(crate) fn start_listening(mut server: ResMut<Server>) {
     server
         .start_endpoint(
             ServerConfiguration::from_string("0.0.0.0:6006").unwrap(),
