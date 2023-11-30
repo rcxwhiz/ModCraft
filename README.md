@@ -21,6 +21,7 @@ This is a toy project of mine where I'm aiming to at least partially recreate a 
 - [ ] Use a dynamic library loading crate to load a mod (`libloading`?)
 - [ ] Get `modcraft_lib` to be able to define a mod
 - [ ] An example mod that loads and runs
+- [ ] Figure out the real appropriate license
 
 # Long Term Goals
 

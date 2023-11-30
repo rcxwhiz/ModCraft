@@ -1,0 +1,6 @@
+{
+    "rust-analyzer.linkedProjects": [
+        ".\\modcraft\\modcraft_app\\Cargo.toml",
+        ".\\modcraft\\modcraft_app\\Cargo.toml"
+    ]
+}
