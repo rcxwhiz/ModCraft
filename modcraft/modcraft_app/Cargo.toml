@@ -15,3 +15,6 @@ modcraft_lib = { path = "../modcraft_lib" }
 # I am including the dynamic linking flag here, should be removed for release (haha... release)
 bevy = { version = "0.12.0", features = ["dynamic_linking"] }
 bevy_quinnet = "0.6.0"
+serde = "1.0"
+rand = "0.8.5"
+tokio = "1.34.0"

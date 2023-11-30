@@ -1,65 +1,164 @@
-use bevy::prelude::*;
+use std::{
+    collections::HashMap,
+    thread::{self, sleep},
+    time::Duration,
+};
 
-use crate::server::*;
+use bevy::{
+    app::AppExit,
+    prelude::{
+        App, Commands, Deref, DerefMut, EventReader, EventWriter, PostUpdate, Res, ResMut,
+        Resource, Startup, Update,
+    },
+    utils::tracing::{info, warn},
+};
+use bevy_quinnet::{
+    client::{
+        certificate::CertificateVerificationMode,
+        connection::{ConnectionConfiguration, ConnectionEvent},
+        Client, QuinnetClientPlugin,
+    },
+    shared::ClientId,
+};
+use rand::{distributions::Alphanumeric, Rng};
+use tokio::sync::mpsc;
+
+use crate::protocol::{ClientMessage, ServerMessage};
+
+#[derive(Resource, Debug, Clone, Default)]
+struct Users {
+    self_id: ClientId,
+    names: HashMap<ClientId, String>,
+}
+
+#[derive(Resource, Deref, DerefMut)]
+struct TerminalReceiver(mpsc::Receiver<String>);
+
+pub fn on_app_exit(app_exit_events: EventReader<AppExit>, client: Res<Client>) {
+    if !app_exit_events.is_empty() {
+        client
+            .connection()
+            .send_message(ClientMessage::Disconnect {})
+            .unwrap();
+        sleep(Duration::from_secs_f32(0.1));
+    }
+}
+
+fn handle_server_messages(mut users: ResMut<Users>, mut client: ResMut<Client>) {
+    while let Some(message) = client
+        .connection_mut()
+        .try_receive_message::<ServerMessage>()
+    {
+        match message {
+            ServerMessage::ClientConnected {
+                client_id,
+                username,
+            } => {
+                info!("{} joined", username);
+                users.names.insert(client_id, username);
+            }
+            ServerMessage::ClientDisconnected { client_id } => {
+                if let Some(username) = users.names.remove(&client_id) {
+                    println!("{} left", username);
+                } else {
+                    warn!("ClientDisconnected for an unknown client_id: {}", client_id);
+                }
+            }
+            ServerMessage::ChatMessage { client_id, message } => {
+                if let Some(username) = users.names.get(&client_id) {
+                    if client_id != users.self_id {
+                        println!("{}: {}", username, message);
+                    }
+                } else {
+                    warn!("Chat message from an unknown client_id: {}", client_id);
+                }
+            }
+            ServerMessage::InitClient {
+                client_id,
+                usernames,
+            } => {
+                users.self_id = client_id;
+                users.names = usernames;
+            }
+        }
+    }
+}
+
+fn handle_terminal_messages(
+    mut terminal_messages: ResMut<TerminalReceiver>,
+    mut app_exit_events: EventWriter<AppExit>,
+    client: Res<Client>,
+) {
+    while let Ok(message) = terminal_messages.try_recv() {
+        if message == "quit" {
+            app_exit_events.send(AppExit);
+        } else {
+            client
+                .connection()
+                .try_send_message(ClientMessage::ChatMessage { message });
+        }
+    }
+}
+
+fn start_terminal_listener(mut commands: Commands) {
+    let (from_terminal_sender, from_terminal_receiver) = mpsc::channel::<String>(100);
+
+    thread::spawn(move || loop {
+        let mut buffer = String::new();
+        std::io::stdin().read_line(&mut buffer).unwrap();
+        from_terminal_sender
+            .try_send(buffer.trim_end().to_string())
+            .unwrap();
+    });
+
+    commands.insert_resource(TerminalReceiver(from_terminal_receiver));
+}
+
+fn start_connection(mut client: ResMut<Client>) {
+    client
+        .open_connection(
+            ConnectionConfiguration::from_strings("127.0.0.1:6006", "0.0.0.0:0").unwrap(),
+            CertificateVerificationMode::SkipVerification,
+        )
+        .unwrap();
+}
+
+fn handle_client_events(
+    mut connection_events: EventReader<ConnectionEvent>,
+    client: ResMut<Client>,
+) {
+    if !connection_events.is_empty() {
+        let username: String = rand::thread_rng()
+            .sample_iter(&Alphanumeric)
+            .take(7)
+            .map(char::from)
+            .collect();
+
+        println!("--- Joining with name: {}", username);
+        println!("--- Type 'quit' to disconnect");
+
+        client
+            .connection()
+            .send_message(ClientMessage::Join { name: username })
+            .unwrap();
+
+        connection_events.clear();
+    }
+}
 
 pub(crate) fn setup_app(app: &mut App) {
-    app.add_plugins(DefaultPlugins);
-
-    app.add_state::<GameState>();
+    app.add_plugins(QuinnetClientPlugin::default());
     
-    // main menu
-    app.add_systems(Update, bevy::window::close_on_esc)
-        .add_systems(OnEnter(GameState::MainMenu), setup_menu_system)
-        .add_systems(Update, menu_system.run_if(in_state(GameState::MainMenu)))
-        .add_systems(OnExit(GameState::MainMenu), teardown_menu_system);
+    app.init_resource::<Users>();
 
-    // hosting a server in a client
-    app.add_systems(OnEnter(GameState::HostingLobby), start_server_system)
-        .add_systems(Update, server_system.run_if(in_state(GameState::HostingLobby)));
-
-    // joining as client
-    app.add_systems(OnEnter(GameState::JoiningLobby), start_client_system)
-        .add_systems(Update, client_system.run_if(in_state(GameState::JoiningLobby)));
-
-    // every app is client
-    // I think the example is more advanced here
-}
-
-#[derive(Default, Clone, Eq, PartialEq, Debug, Hash, States)]
-enum GameState {
-    #[default]
-    MainMenu,
-    HostingLobby,
-    JoiningLobby,
-    Running,
-}
-
-#[derive(Debug, Hash, PartialEq, Eq, Clone, SystemSet)]
-pub enum GameSystems {
-    HostSystems,
-    ClientSystems,
-}
-
-fn start_client_system() {
-    println!("Starting client system");
-}
-
-fn client_system() {
-    println!("This is a client running");
-}
-
-fn stop_client_system() {
-    println!("Stopping client system");
-}
-
-fn setup_menu_system() {
-    println!("Setting up menu");
-}
-
-fn menu_system() {
-    println!("This is a menu system");
-}
-
-fn teardown_menu_system() {
-    println!("Tearing down menu");
+    app.add_systems(Startup, (start_terminal_listener, start_connection))
+        .add_systems(
+            Update,
+            (
+                handle_terminal_messages,
+                handle_server_messages,
+                handle_client_events,
+            ),
+        )
+        .add_systems(PostUpdate, on_app_exit);
 }

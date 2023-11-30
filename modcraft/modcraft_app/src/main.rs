@@ -1,5 +1,6 @@
-use bevy::prelude::*;
+use bevy::{app::ScheduleRunnerPlugin, log::LogPlugin, prelude::*};
 
+mod protocol;
 mod server;
 
 #[cfg(not(feature = "dedicated-server"))]
@@ -10,15 +11,19 @@ use modcraft_lib::add;
 fn main() {
     println!("Welcome to modcraft (now different)");
 
-    #[cfg(not(feature = "dedicated-server"))]
-    println!("Compiled as client");
-
     #[cfg(feature = "dedicated-server")]
     println!("Compiled as dedicated server");
+
+    #[cfg(not(feature = "dedicated-server"))]
+    println!("Compiled as client");
 
     println!("Modcraft lib is working: {} + {} = {}", 2, 2, add(2, 2));
 
     let mut app = App::new();
+    app.add_plugins((
+        ScheduleRunnerPlugin::default(),
+        LogPlugin::default(),
+    ));
 
     #[cfg(feature = "dedicated-server")]
     server::setup_app(&mut app);
