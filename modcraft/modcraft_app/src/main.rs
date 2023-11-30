@@ -1,7 +1,7 @@
 use modcraft_lib::add;
 
 fn main() {
-    println!("Welcome to modcraft");
+    println!("Welcome to modcraft (now different)");
 
     #[cfg(feature = "client")]
     println!("Compiled as client");
