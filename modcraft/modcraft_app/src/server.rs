@@ -13,8 +13,12 @@ use crate::protocol::{ClientMessage, ServerMessage};
 
 #[derive(Resource, Debug, Clone, Default)]
 pub(crate) struct Users {
+    pub host: Option<ClientId>,
     names: HashMap<ClientId, String>,
 }
+
+#[derive(Event)]
+pub(crate) struct SetHostEvent(ClientId);
 
 pub(crate) fn handle_client_messages(mut server: ResMut<Server>, mut users: ResMut<Users>) {
     let endpoint = server.endpoint_mut();
@@ -51,6 +55,7 @@ pub(crate) fn handle_client_messages(mut server: ResMut<Server>, mut users: ResM
                     }
                 }
                 ClientMessage::Disconnect {} => {
+                    // add something to disconnect clients if host quits
                     endpoint.disconnect_client(client_id).unwrap();
                     handle_disconnect(endpoint, &mut users, client_id);
                 }
@@ -83,13 +88,24 @@ pub(crate) fn handle_server_events(
 
 fn handle_disconnect(endpoint: &mut Endpoint, users: &mut ResMut<Users>, client_id: ClientId) {
     if let Some(username) = users.names.remove(&client_id) {
-        endpoint
-            .send_group_message(
-                users.names.keys().into_iter(),
-                ServerMessage::ClientDisconnected { client_id },
-            )
-            .unwrap();
-        info!("{} disconnected", username);
+        if users.host == Some(client_id) {
+            endpoint
+                .send_group_message(
+                    users.names.keys().into_iter(),
+                    ServerMessage::ServerStopping,
+                )
+                .unwrap();
+            endpoint.disconnect_all_clients().unwrap();
+            info!("Disconnected all users")
+        } else {
+            endpoint
+                .send_group_message(
+                    users.names.keys().into_iter(),
+                    ServerMessage::ClientDisconnected { client_id },
+                )
+                .unwrap();
+            info!("{} disconnected", username);
+        }
     } else {
         warn!(
             "Received a Disconnect from an unknown or disconnected client: {}",
@@ -109,9 +125,19 @@ pub(crate) fn start_listening(mut server: ResMut<Server>) {
         .unwrap();
 }
 
+pub(crate) fn handle_set_host(
+    mut ev_set_host: EventReader<SetHostEvent>,
+    mut users: ResMut<Users>,
+) {
+    for ev in ev_set_host.read() {
+        users.host = Some(ev.0);
+    }
+}
+
 pub(crate) fn setup_app(app: &mut App) {
     app.add_plugins(QuinnetServerPlugin::default())
         .init_resource::<Users>()
         .add_systems(Startup, start_listening)
+        .add_systems(PostStartup, handle_set_host)
         .add_systems(Update, (handle_client_messages, handle_server_events));
 }

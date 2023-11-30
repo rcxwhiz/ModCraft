@@ -29,4 +29,5 @@ pub enum ServerMessage {
         client_id: ClientId,
         usernames: HashMap<ClientId, String>,
     },
+    ServerStopping,
 }

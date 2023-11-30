@@ -16,12 +16,16 @@ use bevy_quinnet::{
         connection::{ConnectionConfiguration, ConnectionEvent},
         Client, QuinnetClientPlugin,
     },
-    shared::ClientId, server::QuinnetServerPlugin,
+    server::QuinnetServerPlugin,
+    shared::ClientId,
 };
 use rand::{distributions::Alphanumeric, Rng};
 use tokio::sync::mpsc;
 
-use crate::{protocol::{ClientMessage, ServerMessage}, server};
+use crate::{
+    protocol::{ClientMessage, ServerMessage},
+    server::{self, SetHostEvent},
+};
 
 #[derive(Resource, Debug, Clone, Default)]
 struct Users {
@@ -45,7 +49,13 @@ pub fn on_app_exit(app_exit_events: EventReader<AppExit>, client: Res<Client>) {
     }
 }
 
-fn handle_server_messages(mut users: ResMut<Users>, mut client: ResMut<Client>) {
+fn handle_server_messages(
+    mut users: ResMut<Users>,
+    mut client: ResMut<Client>,
+    mut server_users: ResMut<server::Users>,
+    mut app_exit_events: EventWriter<AppExit>,
+    server_address: Res<ServerAddress>,
+) {
     while let Some(message) = client
         .connection_mut()
         .try_receive_message::<ServerMessage>()
@@ -80,6 +90,14 @@ fn handle_server_messages(mut users: ResMut<Users>, mut client: ResMut<Client>) 
             } => {
                 users.self_id = client_id;
                 users.names = usernames;
+
+                if server_address.0.is_none() {
+                    server_users.host = Some(client_id);
+                }
+            }
+            ServerMessage::ServerStopping => {
+                info!("Server shutdown!");
+                app_exit_events.send(AppExit);
             }
         }
     }
@@ -89,10 +107,20 @@ fn handle_terminal_messages(
     mut terminal_messages: ResMut<TerminalReceiver>,
     mut app_exit_events: EventWriter<AppExit>,
     client: Res<Client>,
+    users: Res<Users>,
 ) {
     while let Ok(message) = terminal_messages.try_recv() {
-        if message == "quit" {
+        if message == "/quit" {
             app_exit_events.send(AppExit);
+        } else if message == "/list" {
+            println!("{} online", &users.names.len());
+            for (c_id, name) in &users.names {
+                println!(
+                    "{}{}",
+                    name,
+                    if c_id == &users.self_id { " (you)" } else { "" }
+                );
+            }
         } else {
             client
                 .connection()
@@ -116,14 +144,11 @@ fn start_terminal_listener(mut commands: Commands) {
 }
 
 fn start_connection(mut client: ResMut<Client>, server_address: Res<ServerAddress>) {
-    if let Some(s) = &server_address.0 {
-        println!("Connecting to {}", s);
-    } else {
-        println!("Connecting to internal server");
-    }
+    let addr = server_address
+        .0
+        .clone()
+        .unwrap_or(String::from("127.0.0.1:6006"));
 
-    let addr = server_address.0.clone().unwrap_or(String::from("127.0.0.1:6006"));
-    
     client
         .open_connection(
             ConnectionConfiguration::from_strings(&addr, "0.0.0.0:0").unwrap(),
@@ -159,6 +184,7 @@ pub(crate) fn setup_app(app: &mut App) {
     // client stuff
     app.add_plugins(QuinnetClientPlugin::default());
     app.init_resource::<Users>();
+    app.add_event::<SetHostEvent>();
 
     app.add_systems(Startup, (start_terminal_listener, start_connection))
         .add_systems(
@@ -175,10 +201,15 @@ pub(crate) fn setup_app(app: &mut App) {
     let server_address = args.get(1);
     app.insert_resource(ServerAddress(server_address.cloned()));
 
-    if server_address.is_none() { // there should be a more organized way to do this (plugins?)
+    if server_address.is_none() {
+        // there should be a more organized way to do this (plugins?)
         app.add_plugins(QuinnetServerPlugin::default())
             .init_resource::<server::Users>()
             .add_systems(Startup, server::start_listening.before(start_connection))
-            .add_systems(Update, (server::handle_client_messages, server::handle_server_events));
+            .add_systems(PostStartup, server::handle_set_host)
+            .add_systems(
+                Update,
+                (server::handle_client_messages, server::handle_server_events),
+            );
     }
 }
