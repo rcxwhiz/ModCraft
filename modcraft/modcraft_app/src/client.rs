@@ -33,7 +33,7 @@ struct Users {
 struct TerminalReceiver(mpsc::Receiver<String>);
 
 #[derive(Resource)]
-struct ServerAddress(ConnectionConfiguration);
+struct ServerAddress(Option<String>);
 
 pub fn on_app_exit(app_exit_events: EventReader<AppExit>, client: Res<Client>) {
     if !app_exit_events.is_empty() {
@@ -55,7 +55,7 @@ fn handle_server_messages(mut users: ResMut<Users>, mut client: ResMut<Client>) 
                 client_id,
                 username,
             } => {
-                info!("{} joined", username);
+                println!("{} joined", username);
                 users.names.insert(client_id, username);
             }
             ServerMessage::ClientDisconnected { client_id } => {
@@ -116,9 +116,17 @@ fn start_terminal_listener(mut commands: Commands) {
 }
 
 fn start_connection(mut client: ResMut<Client>, server_address: Res<ServerAddress>) {
+    if let Some(s) = &server_address.0 {
+        println!("Connecting to {}", s);
+    } else {
+        println!("Connecting to internal server");
+    }
+
+    let addr = server_address.0.clone().unwrap_or(String::from("127.0.0.1:6006"));
+    
     client
         .open_connection(
-            server_address.0.clone(),
+            ConnectionConfiguration::from_strings(&addr, "0.0.0.0:0").unwrap(),
             CertificateVerificationMode::SkipVerification,
         )
         .unwrap();
@@ -135,8 +143,8 @@ fn handle_client_events(
             .map(char::from)
             .collect();
 
-        println!("--- Joining with name: {}", username);
-        println!("--- Type 'quit' to disconnect");
+        println!("Joining with name: {}", username);
+        println!("Type '/quit' to disconnect");
 
         client
             .connection()
@@ -163,31 +171,11 @@ pub(crate) fn setup_app(app: &mut App) {
         )
         .add_systems(PostUpdate, on_app_exit);
 
-    // self hosting flag
-    let mut self_hosting = false;
-    // determine if self hosting by finding a valid server ip to connect to
     let args: Vec<String> = env::args().collect();
-    if let Some(server_address) = args.get(1) {
-        if let Ok(server_config) =
-            ConnectionConfiguration::from_strings(server_address, "0.0.0.0:0")
-        {
-            app.insert_resource(ServerAddress(server_config));
-            info!("Starting client connected to server at {}", server_address);
-        } else {
-            panic!(
-                "Got an invalid server address to connect to: {}",
-                server_address
-            );
-        }
-    } else {
-        app.insert_resource(ServerAddress(
-            ConnectionConfiguration::from_strings("127.0.0.1:6006", "0.0.0.0:0").unwrap(),
-        ));
-        self_hosting = true;
-        info!("Starting a client with a self-hosted server");
-    }
+    let server_address = args.get(1);
+    app.insert_resource(ServerAddress(server_address.cloned()));
 
-    if self_hosting { // there should be a more organized way to do this (plugins?)
+    if server_address.is_none() { // there should be a more organized way to do this (plugins?)
         app.add_plugins(QuinnetServerPlugin::default())
             .init_resource::<server::Users>()
             .add_systems(Startup, server::start_listening.before(start_connection))
