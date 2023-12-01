@@ -134,10 +134,28 @@ pub(crate) fn handle_set_host(
     }
 }
 
-pub(crate) fn setup_app(app: &mut App) {
-    app.add_plugins(QuinnetServerPlugin::default())
-        .init_resource::<Users>()
-        .add_systems(Startup, start_listening)
-        .add_systems(PostStartup, handle_set_host)
-        .add_systems(Update, (handle_client_messages, handle_server_events));
+pub(crate) fn end_server(server: Res<Server>, users: Res<Users>) {
+    let endpoint = server.endpoint();
+    endpoint
+        .send_group_message(
+            users.names.keys().into_iter(),
+            ServerMessage::ServerStopping {},
+        )
+        .unwrap();
+
+    // do something here to end things???
 }
+
+pub(crate) struct ServerPlugin;
+impl Plugin for ServerPlugin {
+    fn build(&self, app: &mut App) {
+        app.add_plugins(QuinnetServerPlugin::default())
+            .init_resource::<Users>()
+            .add_systems(Startup, start_listening)
+            .add_systems(Update, (handle_client_messages, handle_server_events));
+    }
+}
+
+// need to make different dedicated and internal server plugins here
+// also probably need to get server on a lower tick rate just to
+// demonstrate a divide between client and server updates

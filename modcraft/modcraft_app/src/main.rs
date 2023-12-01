@@ -23,10 +23,10 @@ fn main() {
     app.add_plugins((ScheduleRunnerPlugin::default(), LogPlugin::default()));
 
     #[cfg(feature = "dedicated-server")]
-    server::setup_app(&mut app);
+    app.add_plugins(server::ServerPlugin);
 
     #[cfg(not(feature = "dedicated-server"))]
-    client::setup_app(&mut app);
+    app.add_plugins(client::ClientPlugin);
 
     app.run();
 }
