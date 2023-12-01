@@ -134,7 +134,7 @@ pub(crate) fn handle_set_host(
     }
 }
 
-pub(crate) fn end_server(server: Res<Server>, users: Res<Users>) {
+pub(crate) fn end_server(mut server: ResMut<Server>, users: Res<Users>) {
     let endpoint = server.endpoint();
     endpoint
         .send_group_message(
@@ -142,8 +142,7 @@ pub(crate) fn end_server(server: Res<Server>, users: Res<Users>) {
             ServerMessage::ServerStopping {},
         )
         .unwrap();
-
-    // do something here to end things???
+    server.stop_endpoint().unwrap();
 }
 
 pub(crate) struct ServerPlugin;
