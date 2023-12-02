@@ -24,6 +24,10 @@ This is a toy project of mine where I'm aiming to at least partially recreate a 
 - [ ] An example mod that loads and runs
 - [ ] Figure out the real appropriate license
 
+### BUG!!!
+
+I have discovered that apparently when you open a connection to a server, that just doesn't return an error? So what you are waiting on to show that you are really connected is a connected event, which is fair enough. My current game logic moves the game state right when there is user input to join or host a server. The game state should really be changed after the successful connection event? This really feels like I need to figure out a better way to handle the states with an internal server. What would work really well is if there could be a set of states for each enum. 
+
 # Long Term Goals
 
 - [ ] Config options built into `modcraft_lib` (should that be split into its own crate?)

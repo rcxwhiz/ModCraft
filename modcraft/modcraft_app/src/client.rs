@@ -1,7 +1,4 @@
-use std::{
-    collections::HashMap,
-    thread::{self},
-};
+use std::{collections::HashMap, thread};
 
 use bevy::prelude::*;
 use bevy_quinnet::{
@@ -18,8 +15,11 @@ use tokio::sync::mpsc;
 
 use crate::{
     protocol::{ClientMessage, ServerMessage},
-    server::{self, SetHostEvent},
+    server,
 };
+
+#[derive(Event)]
+struct CloseClientConnectionEvent;
 
 #[derive(Debug, Clone, Eq, PartialEq, Hash, Default, States)]
 enum ClientState {
@@ -31,12 +31,8 @@ enum ClientState {
 
 #[derive(Debug, Hash, PartialEq, Eq, Clone, SystemSet)]
 enum GameSystems {
-    HostSystems,
+    ServerSystems,
     ClientSystems,
-    StartHostSystems,
-    StartClientSystems,
-    EndHostSystems,
-    EndClientSystems,
 }
 
 #[derive(Resource, Debug, Clone, Default)]
@@ -55,34 +51,40 @@ struct ClientConnectionConfig(ConnectionConfiguration);
 struct ClientConnectionId(ConnectionId);
 
 fn prompt() {
-    println!("Enter an address to connect to. Enter blank to self host.")
+    println!("Enter an address and port to connect to. Enter blank to self host.")
 }
 
 fn announce_leave_server(
-    commands: Commands,
     client: ResMut<Client>,
-    connection_id: Res<ClientConnectionId>,
+    mut close_connection_events: EventWriter<CloseClientConnectionEvent>,
 ) {
     client
         .connection()
         .send_message(ClientMessage::Disconnect {})
-        .unwrap();
-    close_server_connection(commands, client, connection_id);
+        .expect("Client failed to send disconnect server message");
+    close_connection_events.send(CloseClientConnectionEvent);
 }
 
 fn close_server_connection(
+    mut close_connection_events: EventReader<CloseClientConnectionEvent>,
     mut commands: Commands,
     mut client: ResMut<Client>,
     connection_id: Res<ClientConnectionId>,
 ) {
-    client.close_connection(connection_id.0).unwrap();
-    commands.remove_resource::<ClientConnectionId>();
+    if !close_connection_events.is_empty() {
+        client
+            .close_connection(connection_id.0)
+            .expect("Error closing client connection to server");
+        commands.remove_resource::<ClientConnectionId>();
+        close_connection_events.clear();
+    }
 }
 
 fn handle_server_messages(
     mut users: ResMut<Users>,
     mut client: ResMut<Client>,
     mut client_state: ResMut<NextState<ClientState>>,
+    mut close_connection_events: EventWriter<CloseClientConnectionEvent>,
 ) {
     while let Some(message) = client
         .connection_mut()
@@ -121,7 +123,7 @@ fn handle_server_messages(
             }
             ServerMessage::ServerStopping => {
                 info!("Server shutdown!");
-                // should trigger an event to close the server?
+                close_connection_events.send(CloseClientConnectionEvent);
                 client_state.set(ClientState::Menu);
             }
         }
@@ -143,7 +145,7 @@ fn handle_terminal_messages(
                     next_client_state.set(ClientState::HostingServer);
                     commands.insert_resource(ClientConnectionConfig(
                         ConnectionConfiguration::from_strings("127.0.0.1:6006", "0.0.0.0:0")
-                            .unwrap(),
+                            .expect("Failed to make a server connection configuration"),
                     ));
                 } else {
                     match ConnectionConfiguration::from_strings(&message, "0.0.0.0:0") {
@@ -174,11 +176,11 @@ fn handle_terminal_messages(
                     client
                         .connection()
                         .try_send_message(ClientMessage::ChatMessage { message });
+                    // todo change this to some .expect
                 }
             }
         }
     }
-    // drain messages here since only handling one at a time?
 }
 
 fn start_terminal_listener(mut commands: Commands) {
@@ -186,10 +188,12 @@ fn start_terminal_listener(mut commands: Commands) {
 
     thread::spawn(move || loop {
         let mut buffer = String::new();
-        std::io::stdin().read_line(&mut buffer).unwrap();
+        std::io::stdin()
+            .read_line(&mut buffer)
+            .expect("Failed to read a line from stdin");
         from_terminal_sender
             .try_send(buffer.trim_end().to_string())
-            .unwrap();
+            .expect("Failed to send input buffer to terminal sender?");
     });
 
     commands.insert_resource(TerminalReceiver(from_terminal_receiver));
@@ -205,7 +209,7 @@ fn start_connection(
             connection_config.0.clone(),
             CertificateVerificationMode::SkipVerification,
         )
-        .unwrap();
+        .expect("Could not open client connection to server");
     commands.insert_resource(ClientConnectionId(connection_id));
 }
 
@@ -226,7 +230,7 @@ fn handle_client_events(
         client
             .connection()
             .send_message(ClientMessage::Join { name: username })
-            .unwrap();
+            .expect("Could not send join message to server");
 
         connection_events.clear();
     }
@@ -236,14 +240,16 @@ pub(crate) struct ClientPlugin;
 // All of this stuff should be changed to be as in the server file as possible
 impl Plugin for ClientPlugin {
     fn build(&self, app: &mut App) {
-        // stuff that should always happen
+        // quinnet library plugins
         app.add_plugins((
             QuinnetClientPlugin::default(),
             QuinnetServerPlugin::default(),
         ));
-        app.add_state::<ClientState>();
 
-        app.add_event::<SetHostEvent>();
+        // add states and events
+        app.add_event::<CloseClientConnectionEvent>();
+        app.add_state::<ClientState>();
+        app.add_event::<server::SetHostEvent>();
 
         // stuff that should happen for hosting?
         app.init_resource::<Users>();
@@ -259,23 +265,28 @@ impl Plugin for ClientPlugin {
         // start as client systems
         app.add_systems(
             OnEnter(ClientState::ClientToServer),
-            (start_connection,).in_set(GameSystems::StartClientSystems), // for my game enum here I only need two options since they appear to be local to their schedule
+            (start_connection,).in_set(GameSystems::ClientSystems),
+        );
+
+        // close client connection handler
+        app.add_systems(
+            Update,
+            close_server_connection.run_if(resource_exists::<ClientConnectionId>()),
         );
 
         // start as host systems
+        // -- client stuff
         app.edit_schedule(OnEnter(ClientState::HostingServer), |schedule| {
-            schedule.configure_sets(
-                GameSystems::StartClientSystems.after(GameSystems::StartHostSystems),
-            );
-            schedule.add_systems((start_connection,).in_set(GameSystems::StartClientSystems));
+            schedule.configure_sets(GameSystems::ClientSystems.after(GameSystems::ServerSystems));
+            schedule.add_systems((start_connection,).in_set(GameSystems::ClientSystems));
         });
+        // -- server stuff
         app.add_systems(
             OnEnter(ClientState::HostingServer),
-            (server::start_listening, server::handle_set_host)
-                .in_set(GameSystems::StartHostSystems),
+            (server::start_listening, server::handle_set_host).in_set(GameSystems::ServerSystems),
         );
 
-        // connected or hosting systems
+        // client update systems
         app.edit_schedule(Update, |schedule| {
             schedule.configure_sets(GameSystems::ClientSystems.run_if(
                 in_state(ClientState::ClientToServer).or_else(in_state(ClientState::HostingServer)),
@@ -289,24 +300,26 @@ impl Plugin for ClientPlugin {
                     .in_set(GameSystems::ClientSystems),
             );
         });
+        // client exit systems
         app.add_systems(
             OnExit(ClientState::ClientToServer),
-            (announce_leave_server).in_set(GameSystems::EndClientSystems),
+            (announce_leave_server).in_set(GameSystems::ClientSystems),
         );
 
-        // hosting systems
+        // server update systems
         app.edit_schedule(Update, |schedule| {
             schedule.configure_sets(
-                GameSystems::HostSystems.run_if(in_state(ClientState::HostingServer)),
+                GameSystems::ServerSystems.run_if(in_state(ClientState::HostingServer)),
             );
             schedule.add_systems(
                 (server::handle_client_messages, server::handle_server_events)
-                    .in_set(GameSystems::HostSystems),
+                    .in_set(GameSystems::ServerSystems),
             );
         });
+        // server exit systems
         app.add_systems(
             OnExit(ClientState::HostingServer),
-            (server::end_server, close_server_connection).in_set(GameSystems::EndHostSystems),
+            (server::end_server, close_server_connection).in_set(GameSystems::ServerSystems),
         );
     }
 }
