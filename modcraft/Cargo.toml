@@ -3,7 +3,8 @@ resolver = "2"
 
 members = [
     "modcraft_app",
-    "modcraft_lib"
+    "modcraft_lib",
+    "thread_test",
 ]
 
 # Enable a small amount of optimization in debug mode

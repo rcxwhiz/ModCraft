@@ -323,3 +323,11 @@ impl Plugin for ClientPlugin {
         );
     }
 }
+
+pub fn client_main() {
+    info!("This is the client main function");
+
+    let mut app = App::new();
+    app.add_plugins(ClientPlugin);
+    app.run();
+}

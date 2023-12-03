@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, sync::{Arc, Mutex}};
 
 use bevy::prelude::*;
 use bevy_quinnet::{
@@ -155,6 +155,52 @@ impl Plugin for ServerPlugin {
     }
 }
 
+type Flag = Arc<Mutex<bool>>;
+#[derive(Resource)]
+struct ServerOnlineFlag {
+    flag: Flag,
+}
+impl ServerOnlineFlag {
+    fn new(flag: Flag) -> Self {
+        Self { flag }
+    }
+
+    fn flip_flag(started_flag: Res<ServerOnlineFlag>) {
+        *(*started_flag.flag).lock().expect("Server failed to get lock for started flag") = true;
+    }
+}
+impl Plugin for ServerOnlineFlag {
+    fn build(&self, app: &mut App) {
+        app.insert_resource(Self::new(Arc::clone(&self.flag)));
+        app.add_systems(PostStartup, Self::flip_flag);
+    }
+}
+
 // need to make different dedicated and internal server plugins here
 // also probably need to get server on a lower tick rate just to
 // demonstrate a divide between client and server updates
+
+pub fn server_main() {
+    info!("This is the server main function");
+
+    start_server(None, None);
+}
+
+pub fn internal_server_main(stop_flag: Arc<Mutex<bool>>, online_flag: Arc<Mutex<bool>>) {
+    info!("This is the internal server main function");
+
+    start_server(Some(stop_flag), Some(online_flag));
+}
+
+fn start_server(stop_flag: Option<Arc<Mutex<bool>>>, online_flag: Option<Arc<Mutex<bool>>>) {
+    info!("This is the function that starts the server");
+
+    let mut app = App::new();
+    app.add_plugins(ServerPlugin);
+
+    if let Some(online_flag) = online_flag {
+        app.add_plugins(ServerOnlineFlag::new(online_flag));
+    }
+
+    app.run();
+}
