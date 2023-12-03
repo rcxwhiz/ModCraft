@@ -1,6 +1,9 @@
-use std::{collections::HashMap, sync::{Arc, Mutex}};
+use std::{
+    collections::HashMap,
+    sync::{Arc, Mutex},
+};
 
-use bevy::prelude::*;
+use bevy::{app::AppExit, prelude::*};
 use bevy_quinnet::{
     server::{
         certificate::CertificateRetrievalMode, ConnectionLostEvent, Endpoint, QuinnetServerPlugin,
@@ -9,16 +12,15 @@ use bevy_quinnet::{
     shared::{channel::ChannelId, ClientId},
 };
 
-use crate::protocol::{ClientMessage, ServerMessage};
+use crate::{
+    internal_server::{ClientLeftFlagPlugin, ServerReadyFlagPlugin},
+    protocol::{ClientMessage, ServerMessage},
+};
 
 #[derive(Resource, Debug, Clone, Default)]
-pub(crate) struct Users {
-    pub host: Option<ClientId>,
+struct Users {
     names: HashMap<ClientId, String>,
 }
-
-#[derive(Event)]
-pub(crate) struct SetHostEvent(ClientId);
 
 pub(crate) fn handle_client_messages(mut server: ResMut<Server>, mut users: ResMut<Users>) {
     let endpoint = server.endpoint_mut();
@@ -42,7 +44,7 @@ pub(crate) fn handle_client_messages(mut server: ResMut<Server>, mut users: ResM
                                     usernames: users.names.clone(),
                                 },
                             )
-                            .unwrap();
+                            .expect("Failed to send init client message to new client");
                         endpoint
                             .send_group_message(
                                 users.names.keys().into_iter(),
@@ -51,7 +53,7 @@ pub(crate) fn handle_client_messages(mut server: ResMut<Server>, mut users: ResM
                                     username: name,
                                 },
                             )
-                            .unwrap();
+                            .expect("Failed to send client connected message to clients");
                     }
                 }
                 ClientMessage::Disconnect {} => {
@@ -65,18 +67,18 @@ pub(crate) fn handle_client_messages(mut server: ResMut<Server>, mut users: ResM
                         users.names.get(&client_id),
                         message
                     );
-                    endpoint.try_send_group_message_on(
+                    endpoint.send_group_message_on(
                         users.names.keys().into_iter(),
                         ChannelId::UnorderedReliable,
                         ServerMessage::ChatMessage { client_id, message },
-                    );
+                    ).expect("Failed to send group message with chat");
                 }
             }
         }
     }
 }
 
-pub(crate) fn handle_server_events(
+fn handle_server_events(
     mut connection_lost_events: EventReader<ConnectionLostEvent>,
     mut server: ResMut<Server>,
     mut users: ResMut<Users>,
@@ -88,24 +90,13 @@ pub(crate) fn handle_server_events(
 
 fn handle_disconnect(endpoint: &mut Endpoint, users: &mut ResMut<Users>, client_id: ClientId) {
     if let Some(username) = users.names.remove(&client_id) {
-        if users.host == Some(client_id) {
-            endpoint
-                .send_group_message(
-                    users.names.keys().into_iter(),
-                    ServerMessage::ServerStopping,
-                )
-                .unwrap();
-            endpoint.disconnect_all_clients().unwrap();
-            info!("Disconnected all users")
-        } else {
-            endpoint
-                .send_group_message(
-                    users.names.keys().into_iter(),
-                    ServerMessage::ClientDisconnected { client_id },
-                )
-                .unwrap();
-            info!("{} disconnected", username);
-        }
+        endpoint
+            .send_group_message(
+                users.names.keys().into_iter(),
+                ServerMessage::ClientDisconnected { client_id },
+            )
+            .expect("Failed to send user disconnected group message");
+        info!("{} disconnected", username);
     } else {
         warn!(
             "Received a Disconnect from an unknown or disconnected client: {}",
@@ -114,7 +105,7 @@ fn handle_disconnect(endpoint: &mut Endpoint, users: &mut ResMut<Users>, client_
     }
 }
 
-pub(crate) fn start_listening(mut server: ResMut<Server>) {
+fn start_listening(mut server: ResMut<Server>) {
     server
         .start_endpoint(
             ServerConfiguration::from_string("0.0.0.0:6006").unwrap(),
@@ -122,63 +113,38 @@ pub(crate) fn start_listening(mut server: ResMut<Server>) {
                 server_hostname: "127.0.0.1".to_string(),
             },
         )
-        .unwrap();
+        .expect("Server failed to start endpoint");
 }
 
-pub(crate) fn handle_set_host(
-    mut ev_set_host: EventReader<SetHostEvent>,
-    mut users: ResMut<Users>,
+fn on_server_exit(
+    app_exit_events: EventReader<AppExit>,
+    mut server: ResMut<Server>,
+    users: Res<Users>,
 ) {
-    for ev in ev_set_host.read() {
-        users.host = Some(ev.0);
+    if !app_exit_events.is_empty() {
+        let endpoint = server.endpoint();
+        endpoint
+            .send_group_message(
+                users.names.keys().into_iter(),
+                ServerMessage::ServerStopping {},
+            )
+            .expect("Server failed to send group message that it is stopping");
+        server
+            .stop_endpoint()
+            .expect("Server failed to stop its endpoint");
     }
 }
 
-pub(crate) fn end_server(mut server: ResMut<Server>, users: Res<Users>) {
-    let endpoint = server.endpoint();
-    endpoint
-        .send_group_message(
-            users.names.keys().into_iter(),
-            ServerMessage::ServerStopping {},
-        )
-        .unwrap();
-    server.stop_endpoint().unwrap();
-}
-
-pub(crate) struct ServerPlugin;
+struct ServerPlugin;
 impl Plugin for ServerPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins(QuinnetServerPlugin::default())
             .init_resource::<Users>()
             .add_systems(Startup, start_listening)
-            .add_systems(Update, (handle_client_messages, handle_server_events));
+            .add_systems(FixedUpdate, (handle_client_messages, handle_server_events))
+            .add_systems(PostUpdate, on_server_exit);
     }
 }
-
-type Flag = Arc<Mutex<bool>>;
-#[derive(Resource)]
-struct ServerOnlineFlag {
-    flag: Flag,
-}
-impl ServerOnlineFlag {
-    fn new(flag: Flag) -> Self {
-        Self { flag }
-    }
-
-    fn flip_flag(started_flag: Res<ServerOnlineFlag>) {
-        *(*started_flag.flag).lock().expect("Server failed to get lock for started flag") = true;
-    }
-}
-impl Plugin for ServerOnlineFlag {
-    fn build(&self, app: &mut App) {
-        app.insert_resource(Self::new(Arc::clone(&self.flag)));
-        app.add_systems(PostStartup, Self::flip_flag);
-    }
-}
-
-// need to make different dedicated and internal server plugins here
-// also probably need to get server on a lower tick rate just to
-// demonstrate a divide between client and server updates
 
 pub fn server_main() {
     info!("This is the server main function");
@@ -186,21 +152,33 @@ pub fn server_main() {
     start_server(None, None);
 }
 
-pub fn internal_server_main(stop_flag: Arc<Mutex<bool>>, online_flag: Arc<Mutex<bool>>) {
+pub fn internal_server_main(
+    client_left_flag: Arc<Mutex<bool>>,
+    server_ready_flag: Arc<Mutex<bool>>,
+) {
     info!("This is the internal server main function");
 
-    start_server(Some(stop_flag), Some(online_flag));
+    start_server(Some(client_left_flag), Some(server_ready_flag));
 }
 
-fn start_server(stop_flag: Option<Arc<Mutex<bool>>>, online_flag: Option<Arc<Mutex<bool>>>) {
+fn start_server(
+    client_left_flag: Option<Arc<Mutex<bool>>>,
+    server_ready_flag: Option<Arc<Mutex<bool>>>,
+) {
     info!("This is the function that starts the server");
 
     let mut app = App::new();
     app.add_plugins(ServerPlugin);
 
-    if let Some(online_flag) = online_flag {
-        app.add_plugins(ServerOnlineFlag::new(online_flag));
+    if let Some(client_left_flag) = client_left_flag {
+        app.add_plugins(ClientLeftFlagPlugin::new(client_left_flag));
     }
+
+    if let Some(server_ready_flag) = server_ready_flag {
+        app.add_plugins(ServerReadyFlagPlugin::new(server_ready_flag));
+    }
+
+    // TODO there will probably be another flag later for integrated servers allowing people to join
 
     app.run();
 }

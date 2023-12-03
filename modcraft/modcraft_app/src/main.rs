@@ -5,6 +5,8 @@ mod server;
 
 #[cfg(not(feature = "dedicated-server"))]
 mod client;
+// if flag
+mod internal_server;
 
 use modcraft_lib::add;
 
