@@ -1,26 +1,24 @@
-use bevy::prelude::*;
-
 mod protocol;
 mod server;
 
 #[cfg(not(feature = "dedicated-server"))]
 mod client;
-// if flag
+#[cfg(not(feature = "dedicated-server"))]
 mod internal_server;
 
 use modcraft_lib::add;
 
 fn main() {
     #[cfg(feature = "dedicated-server")]
-    info!("Compiled as dedicated server");
+    println!("Compiled as dedicated server");
 
     #[cfg(not(feature = "dedicated-server"))]
-    info!("Compiled as client");
+    println!("Compiled as client");
 
-    info!("Modcraft lib is working: {} + {} = {}", 2, 2, add(2, 2));
+    println!("Modcraft lib is working: {} + {} = {}", 2, 2, add(2, 2));
 
     #[cfg(feature = "dedicated-server")]
-    server::server_main();
+    server::start_dedicated_server();
 
     #[cfg(not(feature = "dedicated-server"))]
     client::client_main();

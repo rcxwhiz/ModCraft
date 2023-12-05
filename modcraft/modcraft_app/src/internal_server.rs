@@ -5,11 +5,11 @@ use bevy::{app::AppExit, prelude::*};
 type Flag = Arc<Mutex<bool>>;
 
 #[derive(Resource)]
-struct ClientLeftFlagResource {
-    flag: Flag,
+pub(crate) struct ClientLeftFlagResource {
+    pub(crate) flag: Flag,
 }
 impl ClientLeftFlagResource {
-    fn new(flag: Flag) -> Self {
+    pub(crate) fn new(flag: Flag) -> Self {
         Self { flag }
     }
 }
@@ -42,11 +42,11 @@ impl Plugin for ClientLeftFlagPlugin {
 }
 
 #[derive(Resource)]
-struct ServerReadyFlagResource {
-    flag: Flag,
+pub(crate) struct ServerReadyFlagResource {
+    pub(crate) flag: Flag,
 }
 impl ServerReadyFlagResource {
-    fn new(flag: Flag) -> Self {
+    pub(crate) fn new(flag: Flag) -> Self {
         Self { flag }
     }
 }

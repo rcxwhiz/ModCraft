@@ -3,7 +3,11 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use bevy::{app::AppExit, prelude::*};
+use bevy::{
+    app::{AppExit, ScheduleRunnerPlugin},
+    log::LogPlugin,
+    prelude::*,
+};
 use bevy_quinnet::{
     server::{
         certificate::CertificateRetrievalMode, ConnectionLostEvent, Endpoint, QuinnetServerPlugin,
@@ -18,7 +22,7 @@ use crate::{
 };
 
 #[derive(Resource, Debug, Clone, Default)]
-struct Users {
+pub(crate) struct Users {
     names: HashMap<ClientId, String>,
 }
 
@@ -67,11 +71,13 @@ pub(crate) fn handle_client_messages(mut server: ResMut<Server>, mut users: ResM
                         users.names.get(&client_id),
                         message
                     );
-                    endpoint.send_group_message_on(
-                        users.names.keys().into_iter(),
-                        ChannelId::UnorderedReliable,
-                        ServerMessage::ChatMessage { client_id, message },
-                    ).expect("Failed to send group message with chat");
+                    endpoint
+                        .send_group_message_on(
+                            users.names.keys().into_iter(),
+                            ChannelId::UnorderedReliable,
+                            ServerMessage::ChatMessage { client_id, message },
+                        )
+                        .expect("Failed to send group message with chat");
                 }
             }
         }
@@ -135,8 +141,8 @@ fn on_server_exit(
     }
 }
 
-struct ServerPlugin;
-impl Plugin for ServerPlugin {
+struct InternalServerPlugin;
+impl Plugin for InternalServerPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins(QuinnetServerPlugin::default())
             .init_resource::<Users>()
@@ -146,39 +152,31 @@ impl Plugin for ServerPlugin {
     }
 }
 
-pub fn server_main() {
-    info!("This is the server main function");
-
-    start_server(None, None);
+struct DedicatedServerPlugin;
+impl Plugin for DedicatedServerPlugin {
+    fn build(&self, app: &mut App) {
+        app.add_plugins((
+            ScheduleRunnerPlugin::default(),
+            LogPlugin::default(),
+            InternalServerPlugin,
+        ));
+    }
 }
 
-pub fn internal_server_main(
+pub fn start_dedicated_server() {
+    App::new().add_plugins(DedicatedServerPlugin).run();
+}
+
+pub fn start_internal_server(
     client_left_flag: Arc<Mutex<bool>>,
     server_ready_flag: Arc<Mutex<bool>>,
 ) {
-    info!("This is the internal server main function");
-
-    start_server(Some(client_left_flag), Some(server_ready_flag));
-}
-
-fn start_server(
-    client_left_flag: Option<Arc<Mutex<bool>>>,
-    server_ready_flag: Option<Arc<Mutex<bool>>>,
-) {
-    info!("This is the function that starts the server");
-
-    let mut app = App::new();
-    app.add_plugins(ServerPlugin);
-
-    if let Some(client_left_flag) = client_left_flag {
-        app.add_plugins(ClientLeftFlagPlugin::new(client_left_flag));
-    }
-
-    if let Some(server_ready_flag) = server_ready_flag {
-        app.add_plugins(ServerReadyFlagPlugin::new(server_ready_flag));
-    }
-
+    App::new()
+        .add_plugins((
+            InternalServerPlugin,
+            ClientLeftFlagPlugin::new(client_left_flag),
+            ServerReadyFlagPlugin::new(server_ready_flag),
+        ))
+        .run();
     // TODO there will probably be another flag later for integrated servers allowing people to join
-
-    app.run();
 }
