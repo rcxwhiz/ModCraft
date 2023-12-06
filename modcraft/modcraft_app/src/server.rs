@@ -9,7 +9,7 @@ use bevy_quinnet::{
     shared::{channel::ChannelId, ClientId},
 };
 
-use crate::protocol::{ClientMessage, ServerMessage};
+use crate::protocol::{ClientMessage, ServerMessage, self};
 
 #[derive(Debug, Clone, Eq, PartialEq, Hash, Default, States)]
 pub(crate) enum InternalServerState {
@@ -17,6 +17,13 @@ pub(crate) enum InternalServerState {
     Off,
     Launching,
     Running,
+}
+
+#[derive(Debug, Clone, Eq, PartialEq, Hash, Default, States)]
+pub(crate) enum InternalServerMode {
+    #[default]
+    Local,
+    Open,
 }
 
 #[derive(Resource, Debug, Clone, Default)]
@@ -173,6 +180,8 @@ impl Plugin for InternalServerPlugin {
         app.add_plugins(QuinnetServerPlugin::default())
             .add_state::<InternalServerState>()
             .init_resource::<Users>()
+            .add_event::<protocol::ClientMessage>()
+            .add_event::<protocol::ServerMessage>()
             .add_systems(OnEnter(InternalServerState::Launching), startup_systems.in_set(ServerSystems::Startup))
             .add_systems(OnEnter(InternalServerState::Launching), set_internal_server_ready.after(ServerSystems::Startup))
             .add_systems(

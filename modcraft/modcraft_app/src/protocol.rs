@@ -1,10 +1,11 @@
 use std::collections::HashMap;
 
+use bevy::prelude::*;
 use bevy_quinnet::shared::ClientId;
 use serde::{Deserialize, Serialize};
 
 // messages from clients
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Event)]
 pub enum ClientMessage {
     Join { name: String },
     Disconnect {},
@@ -12,7 +13,7 @@ pub enum ClientMessage {
 }
 
 // messages from the server
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Event)]
 pub enum ServerMessage {
     ClientConnected {
         client_id: ClientId,
