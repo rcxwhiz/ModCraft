@@ -17,13 +17,9 @@ use rand::{distributions::Alphanumeric, Rng};
 use tokio::sync::mpsc;
 
 use crate::{
-    internal_server::{ClientLeftFlagResource, ServerReadyFlagResource},
     protocol::{ClientMessage, ServerMessage},
-    server,
+    server::{self, InternalServerState},
 };
-
-// #[derive(Event)]
-// struct CloseClientConnectionEvent;
 
 #[derive(Debug, Clone, Eq, PartialEq, Hash, Default, States)]
 enum ClientState {
@@ -64,22 +60,11 @@ fn close_server_connection(
     mut commands: Commands,
     mut client: ResMut<Client>,
     connection_id: Res<ClientConnectionId>,
-    client_left_flag: Option<ResMut<ClientLeftFlagResource>>,
 ) {
     client
         .close_connection(connection_id.0)
         .expect("Error closing client connection to server");
     commands.remove_resource::<ClientConnectionId>();
-
-    if let Some(client_left_flag) = client_left_flag {
-        *((*client_left_flag)
-            .flag
-            .lock()
-            .expect("Client failed to get lock for client left flag")) = true;
-    }
-
-    commands.remove_resource::<ClientLeftFlagResource>();
-    commands.remove_resource::<ServerReadyFlagResource>();
 }
 
 fn handle_server_messages(
@@ -129,35 +114,12 @@ fn handle_server_messages(
     }
 }
 
-fn launch_internal_server(mut commands: Commands) {
-    let client_left_flag = Arc::new(Mutex::new(false));
-    let server_ready_flag = Arc::new(Mutex::new(false));
-
-    commands.insert_resource(ClientLeftFlagResource::new(Arc::clone(&client_left_flag)));
-    commands.insert_resource(ServerReadyFlagResource::new(Arc::clone(&server_ready_flag)));
-
-    thread::spawn(move || {
-        thread::spawn(move || {
-            server::start_internal_server(
-                Arc::clone(&client_left_flag),
-                Arc::clone(&server_ready_flag),
-            );
-        })
-        .join()
-        .expect("Internal server did not stop correctly");
-    });
-}
-
 fn check_internal_server_ready(
-    server_ready_flag: Res<ServerReadyFlagResource>,
+    internal_server_state: Res<State<server::InternalServerState>>,
     mut next_client_state: ResMut<NextState<ClientState>>,
 ) {
-    if *((*server_ready_flag)
-        .flag
-        .lock()
-        .expect("Client failed to get lock for server ready flag"))
-    {
-        next_client_state.set(ClientState::ConnectingToServer);
+    if let server::InternalServerState::Running = **internal_server_state {
+        next_client_state.set(ClientState::ConnectingToServer)
     }
 }
 
@@ -190,6 +152,7 @@ fn check_if_connected(
 fn handle_menu_input(
     mut commands: Commands,
     mut next_client_state: ResMut<NextState<ClientState>>,
+    mut next_internal_server_state: ResMut<NextState<server::InternalServerState>>,
     message: String,
 ) {
     if message.is_empty() {
@@ -202,6 +165,7 @@ fn handle_menu_input(
         match ConnectionConfiguration::from_strings(&message, "0.0.0.0:0") {
             Ok(connection) => {
                 next_client_state.set(ClientState::ConnectingToServer);
+                next_internal_server_state.set(server::InternalServerState::Launching);
                 commands.insert_resource(ClientConnectionConfig(connection));
             }
             Err(e) => {
@@ -213,13 +177,19 @@ fn handle_menu_input(
 
 fn handle_game_input(
     mut next_client_state: ResMut<NextState<ClientState>>,
+    internal_server_state: Res<State<server::InternalServerState>>,
+    mut next_internal_server_state: ResMut<NextState<server::InternalServerState>>,
     users: Res<Users>,
     client: ResMut<Client>,
     message: String,
 ) {
     if message == "/quit" {
-        announce_leave_server(client);
+        announce_leave_server(client);  // TODO should this be here?
         next_client_state.set(ClientState::Menu);
+        // this guard isn't really necessary since it would be off otherwise..?
+        if let server::InternalServerState::Running = **internal_server_state {
+            next_internal_server_state.set(server::InternalServerState::Off);
+        }
     } else if message == "/list" {
         println!("{} online", &users.names.len());
         for (c_id, name) in &users.names {
@@ -284,7 +254,7 @@ fn start_connection(
     commands.insert_resource(ClientConnectionId(connection_id));
 }
 
-struct ClientPlugin;
+pub(crate) struct ClientPlugin;
 impl Plugin for ClientPlugin {
     fn build(&self, app: &mut App) {
         // quinnet library plugins
@@ -308,7 +278,7 @@ impl Plugin for ClientPlugin {
         // hosting systems
         app.add_systems(
             OnEnter(ClientState::LaunchingInternalServer),
-            launch_internal_server,
+            launch_internal_server,  // not necessary anymore?
         );
         app.add_systems(
             Update,
@@ -329,8 +299,4 @@ impl Plugin for ClientPlugin {
         );
         app.add_systems(OnExit(ClientState::InGame), close_server_connection);
     }
-}
-
-pub fn client_main() {
-    App::new().add_plugins(ClientPlugin).run();
 }

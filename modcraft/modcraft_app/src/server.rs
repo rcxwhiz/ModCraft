@@ -21,6 +21,14 @@ use crate::{
     protocol::{ClientMessage, ServerMessage},
 };
 
+#[derive(Debug, Clone, Eq, PartialEq, Hash, Default, States)]
+pub(crate) enum InternalServerState {
+    #[default]
+    Off,
+    Launching,
+    Running,
+}
+
 #[derive(Resource, Debug, Clone, Default)]
 pub(crate) struct Users {
     names: HashMap<ClientId, String>,
@@ -122,61 +130,61 @@ fn start_listening(mut server: ResMut<Server>) {
         .expect("Server failed to start endpoint");
 }
 
-fn on_server_exit(
+fn handle_app_exit(
     app_exit_events: EventReader<AppExit>,
-    mut server: ResMut<Server>,
+    server: ResMut<Server>,
     users: Res<Users>,
 ) {
     if !app_exit_events.is_empty() {
-        let endpoint = server.endpoint();
-        endpoint
-            .send_group_message(
-                users.names.keys().into_iter(),
-                ServerMessage::ServerStopping {},
-            )
-            .expect("Server failed to send group message that it is stopping");
-        server
-            .stop_endpoint()
-            .expect("Server failed to stop its endpoint");
+        on_server_exit(server, users);
     }
 }
 
-struct InternalServerPlugin;
+fn on_server_exit(mut server: ResMut<Server>, users: Res<Users>) {
+    let endpoint = server.endpoint();
+    endpoint
+        .send_group_message(
+            users.names.keys().into_iter(),
+            ServerMessage::ServerStopping {},
+        )
+        .expect("Server failed to send group message that it is stopping");
+    server
+        .stop_endpoint()
+        .expect("Server failed to stop its endpoint");
+}
+
+pub(crate) struct InternalServerPlugin;
 impl Plugin for InternalServerPlugin {
     fn build(&self, app: &mut App) {
+        // TODO these need to be centralized
+        let startup_systems = (start_listening,);
+        let fixed_update_systems = (handle_client_messages, handle_server_events,);
+        let exit_systems = (on_server_exit,);
+
         app.add_plugins(QuinnetServerPlugin::default())
+            .add_state::<InternalServerState>()
             .init_resource::<Users>()
-            .add_systems(Startup, start_listening)
-            .add_systems(FixedUpdate, (handle_client_messages, handle_server_events))
-            .add_systems(PostUpdate, on_server_exit);
+            .add_systems(OnEnter(InternalServerState::Launching), startup_systems)
+            .add_systems(
+                FixedUpdate,
+                fixed_update_systems
+                    .run_if(in_state(InternalServerState::Running)),
+            )
+            .add_systems(OnExit(InternalServerState::Running), exit_systems); // how does this work?
     }
 }
 
-struct DedicatedServerPlugin;
+pub(crate) struct DedicatedServerPlugin;
 impl Plugin for DedicatedServerPlugin {
     fn build(&self, app: &mut App) {
-        app.add_plugins((
-            ScheduleRunnerPlugin::default(),
-            LogPlugin::default(),
-            InternalServerPlugin,
-        ));
+        let startup_systems = (start_listening,);
+        let fixed_update_systems = (handle_client_messages, handle_server_events,);
+        let post_update_systems = (handle_app_exit,);
+
+        app.add_plugins((MinimalPlugins, QuinnetServerPlugin::default()))
+            .init_resource::<Users>()
+            .add_systems(Startup, startup_systems)
+            .add_systems(FixedUpdate, fixed_update_systems)
+            .add_systems(PostUpdate, post_update_systems);
     }
-}
-
-pub fn start_dedicated_server() {
-    App::new().add_plugins(DedicatedServerPlugin).run();
-}
-
-pub fn start_internal_server(
-    client_left_flag: Arc<Mutex<bool>>,
-    server_ready_flag: Arc<Mutex<bool>>,
-) {
-    App::new()
-        .add_plugins((
-            InternalServerPlugin,
-            ClientLeftFlagPlugin::new(client_left_flag),
-            ServerReadyFlagPlugin::new(server_ready_flag),
-        ))
-        .run();
-    // TODO there will probably be another flag later for integrated servers allowing people to join
 }

@@ -1,3 +1,5 @@
+use bevy::prelude::App;
+
 mod protocol;
 mod server;
 
@@ -17,9 +19,13 @@ fn main() {
 
     println!("Modcraft lib is working: {} + {} = {}", 2, 2, add(2, 2));
 
+    let mut app = App::new();
+
     #[cfg(feature = "dedicated-server")]
-    server::start_dedicated_server();
+    app.add_plugins(server::DedicatedServerPlugin);
 
     #[cfg(not(feature = "dedicated-server"))]
-    client::client_main();
+    app.add_plugins(client::ClientPlugin);
+
+    app.run();
 }
