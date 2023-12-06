@@ -1,10 +1,6 @@
-use std::{
-    collections::HashMap,
-    sync::{Arc, Mutex},
-    thread,
-};
+use std::{collections::HashMap, thread};
 
-use bevy::{app::ScheduleRunnerPlugin, log::LogPlugin, prelude::*};
+use bevy::{prelude::*, log::LogPlugin};
 use bevy_quinnet::{
     client::{
         certificate::CertificateVerificationMode,
@@ -30,6 +26,7 @@ enum ClientState {
     InGame,
 }
 
+// TODO!! clear this after leaving server!
 #[derive(Resource, Debug, Clone, Default)]
 struct Users {
     self_id: ClientId,
@@ -50,6 +47,8 @@ fn prompt() {
 }
 
 fn announce_leave_server(client: ResMut<Client>) {
+    info!("Announcing leaving server!");
+
     client
         .connection()
         .send_message(ClientMessage::Disconnect {})
@@ -61,10 +60,13 @@ fn close_server_connection(
     mut client: ResMut<Client>,
     connection_id: Res<ClientConnectionId>,
 ) {
+    info!("Closing server connection");
+
     client
         .close_connection(connection_id.0)
         .expect("Error closing client connection to server");
     commands.remove_resource::<ClientConnectionId>();
+    commands.remove_resource::<ClientConnectionConfig>();
 }
 
 fn handle_server_messages(
@@ -119,6 +121,8 @@ fn check_internal_server_ready(
     mut next_client_state: ResMut<NextState<ClientState>>,
 ) {
     if let server::InternalServerState::Running = **internal_server_state {
+        info!("Internal server is ready, beginning to connect!");
+
         next_client_state.set(ClientState::ConnectingToServer)
     }
 }
@@ -129,6 +133,8 @@ fn check_if_connected(
     client: ResMut<Client>,
 ) {
     if !connection_events.is_empty() {
+        info!("Got a connection event!");
+
         let username: String = rand::thread_rng()
             .sample_iter(&Alphanumeric)
             .take(7)
@@ -155,17 +161,23 @@ fn handle_menu_input(
     mut next_internal_server_state: ResMut<NextState<server::InternalServerState>>,
     message: String,
 ) {
+    info!("Handling a menu input: {}", &message);
+
     if message.is_empty() {
+        info!("Launching internal server!");
+
         next_client_state.set(ClientState::LaunchingInternalServer);
         commands.insert_resource(ClientConnectionConfig(
             ConnectionConfiguration::from_strings("127.0.0.1:6006", "0.0.0.0:0")
                 .expect("The localhost connection config failed"),
         ));
+        next_internal_server_state.set(server::InternalServerState::Launching);
     } else {
         match ConnectionConfiguration::from_strings(&message, "0.0.0.0:0") {
             Ok(connection) => {
+                info!("Connecting to {}", &message);
+
                 next_client_state.set(ClientState::ConnectingToServer);
-                next_internal_server_state.set(server::InternalServerState::Launching);
                 commands.insert_resource(ClientConnectionConfig(connection));
             }
             Err(e) => {
@@ -183,8 +195,10 @@ fn handle_game_input(
     client: ResMut<Client>,
     message: String,
 ) {
+    info!("Handling a game input: {}", &message);
+
     if message == "/quit" {
-        announce_leave_server(client);  // TODO should this be here?
+        announce_leave_server(client);
         next_client_state.set(ClientState::Menu);
         // this guard isn't really necessary since it would be off otherwise..?
         if let server::InternalServerState::Running = **internal_server_state {
@@ -211,20 +225,38 @@ fn handle_terminal_messages(
     commands: Commands,
     mut terminal_messages: ResMut<TerminalReceiver>,
     next_client_state: ResMut<NextState<ClientState>>,
+    next_internal_server_state: ResMut<NextState<InternalServerState>>,
     client_state: Res<State<ClientState>>,
+    internal_server_state: Res<State<InternalServerState>>,
     client: ResMut<Client>,
     users: Res<Users>,
 ) {
     if let Ok(message) = terminal_messages.try_recv() {
+        info!("Got a terminal message!");
+
         match client_state.get() {
-            ClientState::Menu => handle_menu_input(commands, next_client_state, message),
-            ClientState::InGame => handle_game_input(next_client_state, users, client, message),
+            ClientState::Menu => handle_menu_input(
+                commands,
+                next_client_state,
+                next_internal_server_state,
+                message,
+            ),
+            ClientState::InGame => handle_game_input(
+                next_client_state,
+                internal_server_state,
+                next_internal_server_state,
+                users,
+                client,
+                message,
+            ),
             _ => warn!("Not in a state to accept messages, disregarding"),
         }
     }
 }
 
 fn start_terminal_listener(mut commands: Commands) {
+    info!("Starting terminal listener!");
+
     let (from_terminal_sender, from_terminal_receiver) = mpsc::channel::<String>(100);
 
     thread::spawn(move || loop {
@@ -245,6 +277,8 @@ fn start_connection(
     mut client: ResMut<Client>,
     connection_config: Res<ClientConnectionConfig>,
 ) {
+    info!("Opening connection to server!");
+
     let (connection_id, _) = client
         .open_connection(
             connection_config.0.clone(),
@@ -257,12 +291,10 @@ fn start_connection(
 pub(crate) struct ClientPlugin;
 impl Plugin for ClientPlugin {
     fn build(&self, app: &mut App) {
-        // quinnet library plugins
-        app.add_plugins((
-            ScheduleRunnerPlugin::default(),
-            LogPlugin::default(),
-            QuinnetClientPlugin::default(),
-        ));
+        // library plugins
+        app.add_plugins((MinimalPlugins, LogPlugin::default(), QuinnetClientPlugin::default()));
+        // crate plugins
+        app.add_plugins(server::InternalServerPlugin);
 
         // add states and events
         app.add_state::<ClientState>();
@@ -276,10 +308,6 @@ impl Plugin for ClientPlugin {
         app.add_systems(OnEnter(ClientState::Menu), prompt);
 
         // hosting systems
-        app.add_systems(
-            OnEnter(ClientState::LaunchingInternalServer),
-            launch_internal_server,  // not necessary anymore?
-        );
         app.add_systems(
             Update,
             check_internal_server_ready.run_if(in_state(ClientState::LaunchingInternalServer)),

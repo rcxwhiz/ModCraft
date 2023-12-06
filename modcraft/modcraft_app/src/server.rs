@@ -1,13 +1,6 @@
-use std::{
-    collections::HashMap,
-    sync::{Arc, Mutex},
-};
+use std::collections::HashMap;
 
-use bevy::{
-    app::{AppExit, ScheduleRunnerPlugin},
-    log::LogPlugin,
-    prelude::*,
-};
+use bevy::{app::AppExit, prelude::*};
 use bevy_quinnet::{
     server::{
         certificate::CertificateRetrievalMode, ConnectionLostEvent, Endpoint, QuinnetServerPlugin,
@@ -16,10 +9,7 @@ use bevy_quinnet::{
     shared::{channel::ChannelId, ClientId},
 };
 
-use crate::{
-    internal_server::{ClientLeftFlagPlugin, ServerReadyFlagPlugin},
-    protocol::{ClientMessage, ServerMessage},
-};
+use crate::protocol::{ClientMessage, ServerMessage};
 
 #[derive(Debug, Clone, Eq, PartialEq, Hash, Default, States)]
 pub(crate) enum InternalServerState {
@@ -32,6 +22,13 @@ pub(crate) enum InternalServerState {
 #[derive(Resource, Debug, Clone, Default)]
 pub(crate) struct Users {
     names: HashMap<ClientId, String>,
+}
+
+#[derive(Debug, Hash, PartialEq, Eq, Clone, SystemSet)]
+enum ServerSystems {
+    Startup,
+    FixedUpdate,
+    OnExit,
 }
 
 pub(crate) fn handle_client_messages(mut server: ResMut<Server>, mut users: ResMut<Users>) {
@@ -120,6 +117,8 @@ fn handle_disconnect(endpoint: &mut Endpoint, users: &mut ResMut<Users>, client_
 }
 
 fn start_listening(mut server: ResMut<Server>) {
+    info!("Starting endpoint!");
+
     server
         .start_endpoint(
             ServerConfiguration::from_string("0.0.0.0:6006").unwrap(),
@@ -141,6 +140,8 @@ fn handle_app_exit(
 }
 
 fn on_server_exit(mut server: ResMut<Server>, users: Res<Users>) {
+    info!("Server exiting!");
+
     let endpoint = server.endpoint();
     endpoint
         .send_group_message(
@@ -153,24 +154,32 @@ fn on_server_exit(mut server: ResMut<Server>, users: Res<Users>) {
         .expect("Server failed to stop its endpoint");
 }
 
+fn set_internal_server_ready(mut next_internal_server_state: ResMut<NextState<InternalServerState>>) {
+    next_internal_server_state.set(InternalServerState::Running);
+}
+
+fn clear_users(mut users: ResMut<Users>) {
+    (*users).names.clear();
+}
+
 pub(crate) struct InternalServerPlugin;
 impl Plugin for InternalServerPlugin {
     fn build(&self, app: &mut App) {
         // TODO these need to be centralized
         let startup_systems = (start_listening,);
-        let fixed_update_systems = (handle_client_messages, handle_server_events,);
-        let exit_systems = (on_server_exit,);
+        let fixed_update_systems = (handle_client_messages, handle_server_events);
+        let exit_systems = (on_server_exit, clear_users,);
 
         app.add_plugins(QuinnetServerPlugin::default())
             .add_state::<InternalServerState>()
             .init_resource::<Users>()
-            .add_systems(OnEnter(InternalServerState::Launching), startup_systems)
+            .add_systems(OnEnter(InternalServerState::Launching), startup_systems.in_set(ServerSystems::Startup))
+            .add_systems(OnEnter(InternalServerState::Launching), set_internal_server_ready.after(ServerSystems::Startup))
             .add_systems(
                 FixedUpdate,
-                fixed_update_systems
-                    .run_if(in_state(InternalServerState::Running)),
+                fixed_update_systems.run_if(in_state(InternalServerState::Running)).in_set(ServerSystems::FixedUpdate),
             )
-            .add_systems(OnExit(InternalServerState::Running), exit_systems); // how does this work?
+            .add_systems(OnExit(InternalServerState::Running), exit_systems.in_set(ServerSystems::OnExit)); // how does this work?
     }
 }
 
@@ -178,7 +187,7 @@ pub(crate) struct DedicatedServerPlugin;
 impl Plugin for DedicatedServerPlugin {
     fn build(&self, app: &mut App) {
         let startup_systems = (start_listening,);
-        let fixed_update_systems = (handle_client_messages, handle_server_events,);
+        let fixed_update_systems = (handle_client_messages, handle_server_events);
         let post_update_systems = (handle_app_exit,);
 
         app.add_plugins((MinimalPlugins, QuinnetServerPlugin::default()))

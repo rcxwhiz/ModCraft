@@ -18,7 +18,9 @@ This is a toy project of mine where I'm aiming to at least partially recreate a 
 - [X] Get bevy setup in the workspace
 - [X] Pick client/server communication library (probably `bevy_quinnet` or `bevy_renet`) (chose `bevy_quinnet` for now)
 - [X] Get `bevy_quinnet integrated into project`
-- [ ] Get client-server architecture resolved
+- [X] Get client-server architecture resolved
+- [ ] Figure out how to make system sets easier that are reusable
+- [ ] Figure out how to make an equivalent non-network message queue between client and internal server in singleplayer
 - [ ] Use a dynamic library loading crate to load a mod (`libloading`?)
 - [ ] Get `modcraft_lib` to be able to define a mod
 - [ ] An example mod that loads and runs
