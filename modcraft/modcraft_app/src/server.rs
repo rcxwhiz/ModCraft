@@ -9,7 +9,7 @@ use bevy_quinnet::{
     shared::{channel::ChannelId, ClientId},
 };
 
-use crate::protocol::{ClientMessage, ServerMessage, self};
+use crate::protocol::{ClientMessage, ServerMessage};
 
 #[derive(Debug, Clone, Eq, PartialEq, Hash, Default, States)]
 pub(crate) enum InternalServerState {
@@ -17,13 +17,6 @@ pub(crate) enum InternalServerState {
     Off,
     Launching,
     Running,
-}
-
-#[derive(Debug, Clone, Eq, PartialEq, Hash, Default, States)]
-pub(crate) enum InternalServerMode {
-    #[default]
-    Local,
-    Open,
 }
 
 #[derive(Resource, Debug, Clone, Default)]
@@ -161,7 +154,9 @@ fn on_server_exit(mut server: ResMut<Server>, users: Res<Users>) {
         .expect("Server failed to stop its endpoint");
 }
 
-fn set_internal_server_ready(mut next_internal_server_state: ResMut<NextState<InternalServerState>>) {
+fn set_internal_server_ready(
+    mut next_internal_server_state: ResMut<NextState<InternalServerState>>,
+) {
     next_internal_server_state.set(InternalServerState::Running);
 }
 
@@ -175,20 +170,29 @@ impl Plugin for InternalServerPlugin {
         // TODO these need to be centralized
         let startup_systems = (start_listening,);
         let fixed_update_systems = (handle_client_messages, handle_server_events);
-        let exit_systems = (on_server_exit, clear_users,);
+        let exit_systems = (on_server_exit, clear_users);
 
         app.add_plugins(QuinnetServerPlugin::default())
             .add_state::<InternalServerState>()
             .init_resource::<Users>()
-            .add_event::<protocol::ClientMessage>()
-            .add_event::<protocol::ServerMessage>()
-            .add_systems(OnEnter(InternalServerState::Launching), startup_systems.in_set(ServerSystems::Startup))
-            .add_systems(OnEnter(InternalServerState::Launching), set_internal_server_ready.after(ServerSystems::Startup))
+            .add_systems(
+                OnEnter(InternalServerState::Launching),
+                startup_systems.in_set(ServerSystems::Startup),
+            )
+            .add_systems(
+                OnEnter(InternalServerState::Launching),
+                set_internal_server_ready.after(ServerSystems::Startup),
+            )
             .add_systems(
                 FixedUpdate,
-                fixed_update_systems.run_if(in_state(InternalServerState::Running)).in_set(ServerSystems::FixedUpdate),
+                fixed_update_systems
+                    .run_if(in_state(InternalServerState::Running))
+                    .in_set(ServerSystems::FixedUpdate),
             )
-            .add_systems(OnExit(InternalServerState::Running), exit_systems.in_set(ServerSystems::OnExit)); // how does this work?
+            .add_systems(
+                OnExit(InternalServerState::Running),
+                exit_systems.in_set(ServerSystems::OnExit),
+            ); // how does this work?
     }
 }
 
