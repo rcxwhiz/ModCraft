@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use bevy::{app::AppExit, prelude::*};
+use bevy::{app::AppExit, prelude::*, ecs::schedule::ScheduleLabel};
 use bevy_quinnet::{
     server::{
         certificate::CertificateRetrievalMode, ConnectionLostEvent, Endpoint, QuinnetServerPlugin,
@@ -162,6 +162,12 @@ fn set_internal_server_ready(
 
 fn clear_users(mut users: ResMut<Users>) {
     (*users).names.clear();
+}
+
+fn test1<M>(schedule: impl ScheduleLabel, systems: impl IntoSystemConfigs<M>) -> impl IntoSystemConfigs<M> where M: Sized {
+    start_listening
+    //(start_listening,)
+    //systems
 }
 
 pub(crate) struct InternalServerPlugin;
