@@ -2,13 +2,18 @@
 
 This is a toy project of mine where I'm aiming to at least partially recreate a popular block-based game with performance and modding in mind. This game uses [bevy](https://bevyengine.org/) as an engine.
 
-## Crates
+# Blocking issue
 
-`modcraft_app`: Contains a compilation feature flag `client` which will compile the crate into a client vs. a server for the game. On the client side, contains code for rendering and input handling and sending data to the server. When playing single player, the client can start a process with a server. The server code handles game logic and interaction with clients via networking.
+I have recently come against a blocking issue in my development. One of the key parts of this project for me is the ability to load the game and mods without compiling. I don't think you can pretend a game is useful or real if it requires every user to compile from source, and then additionally compile all mods from source. It also doesn't make for a very good modding API. 
 
-`modcraft_lib`: Contains everything(?) that a mod would need to depend on to compile into a library that can be dynamically loaded at runtime by the client or server. The server crate depends on this library and uses it to load anonymous mods at runtime.
+The issue is that I want to be able to configure the bevy schedule at runtime, and allowe mods to wrap or replace vanilla systems. The way systems work right now is they are `IntoSystemConfigs`, which as far as I can tell are not allowed to be used with `dyn` or anything, meaning your systems have to be known at compile time. Even without mods, I was thinking this could be useful in my server code because there are sets of systems that are the same between the internal and dedicated servers, but they are added to different schedule labels. 
 
-`example_mod`: An example mod crate that depends on `modcraft_lib`.
+In my mind what would be optimal for modding is if mods could:
+- Have access to simple APIs with things like `register_block(...)`
+- Be allowed to provide plugins that can be registered with the `App`
+- Have access to a structure that represents the vanilla systems and add/remove/replace/wrap them for ultimate control. 
+
+It looks like this kind of thing is not so possible at the moment. There is the `bevy_dynamic_plugin` crate, which lets you have dynamic `Plugin`s, but it's a little hacky and delicate. There is a feature on track for release in `bevy 0.13` with a revamped query system that would maybe take away the pain of the `IntoSystemConfigs` stuff. It seems like in general there aren't a lot of dynamic features in Rust or Bevy, so this project in general might be a bit of a dead end. 
 
 # Short Term Goals
 
@@ -25,10 +30,6 @@ This is a toy project of mine where I'm aiming to at least partially recreate a 
 - [ ] Get `modcraft_lib` to be able to define a mod
 - [ ] An example mod that loads and runs
 - [ ] Figure out the real appropriate license
-
-### BUG!!!
-
-I have discovered that apparently when you open a connection to a server, that just doesn't return an error? So what you are waiting on to show that you are really connected is a connected event, which is fair enough. My current game logic moves the game state right when there is user input to join or host a server. The game state should really be changed after the successful connection event? This really feels like I need to figure out a better way to handle the states with an internal server. What would work really well is if there could be a set of states for each enum. 
 
 # Long Term Goals
 
